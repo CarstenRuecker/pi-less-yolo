@@ -46,6 +46,11 @@ DOCKER_FLAGS=(
   "--volume" "${HOME}/.pi/agent:/pi-agent"
   "--workdir" "$(pwd)"
   "--env" "PI_CODING_AGENT_DIR=/pi-agent"
+  # Explicit HOME: podman overrides HOME to the working directory when the
+  # runtime UID has no resolvable home, ignoring the image's ENV HOME. That
+  # leaks the workspace into the entrypoint's /etc/passwd synthesis, and SSH
+  # (which resolves ~ via getpwuid) then looks for ~/.ssh in the project dir.
+  "--env" "HOME=/home/piuser"
   "--env" "TERM=${TERM:-xterm-256color}"
   "--env" "COLORTERM=${COLORTERM:-truecolor}"
 )
