@@ -9,7 +9,10 @@ RUN apk add --no-cache \
         ca-certificates \
         git \
         openssh-client \
-        tmux
+        tmux \
+        chromium \
+        fontconfig \
+        ttf-dejavu
 
 # Install mise (GPG-verified via mise-release.asc; secret mount avoids a rootless-Podman/SELinux AVC denial, #99).
 RUN --mount=type=secret,id=mise_asc,target=/tmp/mise-release.asc,required=true \
