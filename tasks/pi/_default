@@ -17,10 +17,12 @@ fi
 
 PI_ARGS=()
 if [[ -z "${PI_NO_CONTAINER_PROMPT:-}" ]]; then
-  PI_ARGS+=(
-    "--append-system-prompt"
-    "You are running inside a Docker container as a non-root user. No Docker socket, sudo, or system package installation (apk requires root) is available."
-  )
+  _pi_prompt="You are running inside a Docker container as a non-root user. No Docker socket, sudo, or system package installation (apk requires root) is available."
+  if [[ -n "${PI_GPU:-}" ]]; then
+    _pi_prompt+=" An NVIDIA GPU is available via CUDA; the driver is injected at container start, so install CUDA-enabled packages from the language ecosystem (e.g. torch from the PyTorch cu128 wheel index) rather than system CUDA."
+  fi
+  PI_ARGS+=("--append-system-prompt" "${_pi_prompt}")
+  unset _pi_prompt
 fi
 
 "${DOCKER_CMD}" run "${DOCKER_FLAGS[@]}" "${PI_IMAGE}" "${PI_ARGS[@]}" "$@"

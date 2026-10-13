@@ -154,6 +154,46 @@ else
   info "local model host access inactive (set PI_LOCAL_MODELS=1 to enable)"
 fi
 
+# --- GPU access -------------------------------------------------------------
+echo ""
+if [[ -d /proc/driver/nvidia ]]; then
+  _gpu_model=$(awk -F': +' '/^Model/ {print $2}' /proc/driver/nvidia/gpus/*/information 2>/dev/null | head -1)
+  pass "NVIDIA driver loaded${_gpu_model:+ (${_gpu_model})}"
+else
+  info "no NVIDIA driver detected — GPU access unavailable"
+fi
+
+if command -v nvidia-ctk > /dev/null 2>&1; then
+  pass "nvidia-ctk available (nvidia-container-toolkit installed)"
+elif [[ -d /proc/driver/nvidia ]]; then
+  warn "NVIDIA driver present but nvidia-ctk not found — install nvidia-container-toolkit to enable PI_GPU=1"
+fi
+
+if [[ -d /proc/driver/nvidia ]]; then
+  if [[ "${DOCKER_CMD}" == "podman" ]]; then
+    _cdi=0
+    [[ -f "/etc/cdi/nvidia.yaml" ]] && _cdi=1
+    for _spec in /var/run/cdi/*.yaml; do
+      [[ -f "${_spec}" ]] && _cdi=1
+    done
+    if [[ "${_cdi}" -eq 1 ]]; then
+      pass "CDI spec present (required by PI_GPU=1 under podman)"
+    else
+      warn "no CDI spec in /etc/cdi or /var/run/cdi — run: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml"
+    fi
+  elif "${DOCKER_CMD}" info --format '{{json .Runtimes}}' 2>/dev/null | grep -q nvidia; then
+    pass "nvidia runtime registered with ${DOCKER_CMD}"
+  else
+    warn "nvidia runtime not registered with ${DOCKER_CMD} — run: sudo nvidia-ctk runtime configure --runtime=docker, then restart the daemon"
+  fi
+fi
+
+if [[ -n "${PI_GPU:-}" ]]; then
+  info "PI_GPU=1 is set — GPU is exposed to the container. GPU DMA is not confined by the container's filesystem isolation."
+else
+  info "GPU access disabled (set PI_GPU=1 to expose the host GPU)"
+fi
+
 # --- platform note ----------------------------------------------------------
 echo ""
 if [[ "$(uname -s)" == "Darwin" ]]; then

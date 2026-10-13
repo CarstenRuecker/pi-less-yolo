@@ -8,3 +8,4 @@ mise run test:limits
 mise run test:readonly
 mise run test:extra-mounts
 mise run test:podman-detection
+mise run test:gpu

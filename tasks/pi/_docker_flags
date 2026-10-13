@@ -95,11 +95,47 @@ if [[ -z "${PI_NO_GITCONFIG:-}" && -f "${HOME}/.gitconfig" ]]; then
   DOCKER_FLAGS+=("--volume" "${HOME}/.gitconfig:/home/piuser/.gitconfig:ro")
 fi
 
-# Resource limits. Opt in by setting any of PI_MEMORY, PI_CPUS, or PI_PIDS_LIMIT.
-# Examples: PI_MEMORY=4g PI_CPUS=2 PI_PIDS_LIMIT=512
+# Resource limits. Opt in by setting any of PI_MEMORY, PI_CPUS, PI_PIDS_LIMIT,
+# or PI_SHM_SIZE. Examples: PI_MEMORY=4g PI_CPUS=2 PI_PIDS_LIMIT=512
+# PI_SHM_SIZE sets /dev/shm, which the runtime caps at 64m by default — CUDA
+# frameworks that pass tensors between processes (PyTorch DataLoader workers)
+# fail with a bus error unless this is raised.
 [[ -n "${PI_MEMORY:-}" ]]     && DOCKER_FLAGS+=("--memory" "${PI_MEMORY}")
 [[ -n "${PI_CPUS:-}" ]]       && DOCKER_FLAGS+=("--cpus" "${PI_CPUS}")
 [[ -n "${PI_PIDS_LIMIT:-}" ]] && DOCKER_FLAGS+=("--pids-limit" "${PI_PIDS_LIMIT}")
+[[ -n "${PI_SHM_SIZE:-}" ]]   && DOCKER_FLAGS+=("--shm-size" "${PI_SHM_SIZE}")
+
+# PI_GPU=1: expose the host GPU. Requires nvidia-container-toolkit on the host.
+# Podman resolves the device through a CDI spec (`nvidia-ctk cdi generate`);
+# Docker uses its registered nvidia runtime, which selects the driver libraries
+# to inject from NVIDIA_DRIVER_CAPABILITIES — CDI specs are pre-resolved, so the
+# variable is only needed on the Docker path.
+# The driver itself is never baked into the image: libcuda.so.1 and the device
+# nodes are injected at container start. CUDA userspace (cudart, cublas, cudnn)
+# comes from the Python package, e.g. torch from the cu128 wheel index.
+# Security: GPU DMA is not confined by the container's filesystem isolation —
+# with device access a compromised container can reach host physical memory the
+# GPU has mapped. GeForce has no MIG, so there is no per-container VRAM or
+# compute cap equivalent to PI_MEMORY/PI_CPUS. Opt-in only for that reason.
+if [[ -n "${PI_GPU:-}" ]]; then
+  if [[ "${DOCKER_CMD}" == "podman" ]]; then
+    _pi_cdi=0
+    [[ -f "/etc/cdi/nvidia.yaml" ]] && _pi_cdi=1
+    for _pi_spec in /var/run/cdi/*.yaml; do
+      [[ -f "${_pi_spec}" ]] && _pi_cdi=1
+    done
+    if [[ "${_pi_cdi}" -eq 0 ]]; then
+      echo "warning: PI_GPU=1 but no CDI spec in /etc/cdi or /var/run/cdi — run: sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml" >&2
+    fi
+    DOCKER_FLAGS+=("--device" "nvidia.com/gpu=all")
+  else
+    DOCKER_FLAGS+=(
+      "--gpus" "all"
+      "--env" "NVIDIA_DRIVER_CAPABILITIES=compute,utility"
+    )
+  fi
+  unset _pi_cdi _pi_spec
+fi
 
 # PI_LOCAL_MODELS=1: share the host network namespace so local model servers
 # (Ollama, LM Studio, vLLM) are reachable at their native localhost URLs.

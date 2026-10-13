@@ -298,6 +298,57 @@ Or export it in your shell profile to make it permanent.
 > `host.docker.internal` as the `baseUrl` in `models.json` instead — Docker
 > Desktop routes that hostname to the Mac host correctly.
 
+### GPU access (CUDA)
+
+GPU access is **disabled by default**. Set `PI_GPU=1` to expose the host GPU to the
+container — for running CUDA workloads, local model inference, or GPU-accelerated
+libraries from inside a pi session.
+
+```bash
+PI_GPU=1 mise run pi
+```
+
+**Host requirements.** The [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+must be installed. Podman resolves the GPU through a **CDI spec**, generated once:
+
+```bash
+sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml
+```
+
+Docker instead needs the nvidia runtime registered (`sudo nvidia-ctk runtime
+configure --runtime=docker`, then restart the daemon). `mise run pi:health` checks
+both, and warns when `PI_GPU=1` is set without the matching prerequisite.
+
+**Nothing CUDA is baked into the image.** The driver (`libcuda.so.1`) and the
+`/dev/nvidia*` device nodes are injected by the runtime at container start, and
+CUDA userspace — `libcudart`, `libcublas`, `libcudnn` — ships inside the language
+ecosystem's own packages. For Python, install the CUDA wheel build into a project
+venv:
+
+```bash
+uv venv && uv pip install torch --index-url https://download.pytorch.org/whl/cu128
+```
+
+The `cu128` (or newer) build is required for Blackwell cards such as the RTX 50
+series. Check `mise run pi:health` output and the wheel index for your GPU and
+Python version before assuming a build exists.
+
+> **Security note:** GPU DMA is not confined by the container's filesystem
+> isolation. With device access, a compromised container can reach host physical
+> memory that the GPU has mapped — this is the one capability that meaningfully
+> weakens the "project directory only" guarantee. `--cap-drop=ALL` and
+> `--no-new-privileges` remain in force, and the driver still never enters the
+> image, but treat `PI_GPU=1` as a deliberate escalation. GeForce cards have no
+> MIG, so there is no per-container VRAM or compute cap equivalent to `PI_MEMORY`
+> or `PI_CPUS`: a runaway training job saturates the GPU and degrades the desktop.
+
+PyTorch's `DataLoader` workers communicate through `/dev/shm`, which the runtime
+caps at 64 MB. Raise it with `PI_SHM_SIZE` if workers crash with a bus error:
+
+```bash
+PI_GPU=1 PI_SHM_SIZE=1g mise run pi
+```
+
 ### Extra mounts
 
 Set `PI_EXTRA_MOUNTS` to mount additional host directories into the container —
@@ -318,14 +369,15 @@ and are skipped — they don't stop pi from starting.
 
 ### Resource limits
 
-By default no memory, CPU, or process-count limits are applied. Set any of these
-variables to cap resource usage:
+By default no memory, CPU, shared-memory, or process-count limits are applied. Set
+any of these variables to cap resource usage:
 
 | Variable | Docker flag | Example |
 |---|---|---|
 | `PI_MEMORY` | `--memory` | `PI_MEMORY=4g` |
 | `PI_CPUS` | `--cpus` | `PI_CPUS=2` |
 | `PI_PIDS_LIMIT` | `--pids-limit` | `PI_PIDS_LIMIT=512` |
+| `PI_SHM_SIZE` | `--shm-size` | `PI_SHM_SIZE=1g` |
 
 ```bash
 PI_MEMORY=4g PI_PIDS_LIMIT=512 mise run pi

@@ -72,6 +72,7 @@ mise run ci      # lint + docker build + smoke test
 - Docker security flags (`--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--user $(id -u):$(id -g)`) are non-negotiable. Do not weaken them.
 - **Podman support:** `tasks/pi/_docker_flags` detects podman via `docker --version` output (version string) and binary path (`readlink -f`); adds `--userns=keep-id` to fix TTY ownership errors. Shell aliases are not visible in non-interactive scripts; users need the `podman-docker` package, a symlink, or `PI_CONTAINER_RUNTIME=podman`.
 - `--network=host` appears in `pi:build` on Linux (DNS workaround) and in runtime `DOCKER_FLAGS` when `PI_LOCAL_MODELS=1` is set. It must not appear unconditionally in runtime `DOCKER_FLAGS`.
+- **GPU support is opt-in (`PI_GPU=1`) and adds nothing to the image.** The driver and `/dev/nvidia*` nodes are injected by the container runtime; CUDA userspace comes from language-ecosystem packages (e.g. torch from the PyTorch cu128 wheel index). Do not add CUDA packages to `Dockerfile`. Podman requires a CDI spec (`/etc/cdi/nvidia.yaml` or `/var/run/cdi/*.yaml`); Docker requires the registered nvidia runtime. `mise run test:gpu` skips when the host has no GPU — GitHub-hosted runners never exercise this path.
 - When adding a new provider API key: add it to the `PI_ENV_VARS` array in `tasks/pi/_docker_flags` **and** the auth table in `README.md`.
 - Host-side control variables consumed by `_docker_flags`; not forwarded into the container via `PI_ENV_VARS`:
 
@@ -81,6 +82,8 @@ mise run ci      # lint + docker build + smoke test
   | `PI_NO_CONTAINER_PROMPT=1` | Suppress the container-context `--append-system-prompt` (no Docker socket, sudo, or root) |
   | `PI_SSH_AGENT=1` | Forward SSH agent socket; also mounts `~/.ssh/known_hosts` and `~/.ssh/config` read-only |
   | `PI_LOCAL_MODELS=1` | Add `--network=host` so local model servers are reachable at `localhost`; on macOS Docker Desktop use `host.docker.internal` instead |
+  | `PI_GPU=1` | Expose the host GPU — `--device nvidia.com/gpu=all` under podman (CDI spec required), `--gpus all` plus `NVIDIA_DRIVER_CAPABILITIES=compute,utility` under Docker |
+  | `PI_SHM_SIZE` | Set `--shm-size` (e.g. `1g`); the runtime caps `/dev/shm` at 64m, which breaks PyTorch `DataLoader` workers |
   | `PI_MEMORY` | Set `--memory` (e.g. `4g`) |
   | `PI_CPUS` | Set `--cpus` |
   | `PI_PIDS_LIMIT` | Set `--pids-limit` |

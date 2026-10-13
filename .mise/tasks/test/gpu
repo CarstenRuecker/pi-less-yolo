@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#MISE description="Smoke test that PI_GPU=1 injects the host GPU driver and device nodes into the container"
+set -euo pipefail
+
+DOCKER_CMD="${PI_CONTAINER_RUNTIME:-docker}"
+
+# GitHub-hosted runners have no GPU, so this must skip rather than fail.
+if [[ ! -d /proc/driver/nvidia ]]; then
+  echo "  SKIP no NVIDIA driver on host"
+  exit 0
+fi
+
+if ! "${DOCKER_CMD}" image inspect pi-less-yolo:latest >/dev/null 2>&1; then
+  echo "  SKIP pi-less-yolo:latest not in image store"
+  exit 0
+fi
+
+# shellcheck disable=SC2016  # $1 is a positional parameter in the child bash -c, not the current shell
+_inner='
+  nvidia-smi -L > /dev/null          || { echo "FAIL nvidia-smi"; exit 1; }
+  ldconfig -p | grep -q libcuda.so.1 || { echo "FAIL libcuda";   exit 1; }
+  [ -c /dev/nvidia0 ]                || { echo "FAIL /dev/nvidia0"; exit 1; }
+  echo "  OK nvidia-smi, libcuda.so.1, and /dev/nvidia0 present under --cap-drop=ALL"
+'
+PI_GPU=1 bash -c '
+  source tasks/pi/_docker_flags
+  "${DOCKER_CMD}" run "${DOCKER_FLAGS[@]}" pi-less-yolo:latest bash -c "$1"
+' -- "$_inner"
